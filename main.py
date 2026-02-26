@@ -1,14 +1,17 @@
 import asyncio
+from datetime import datetime
 import logging
 import os
 import re
+import tempfile
+from pathlib import Path
 
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import Application, filters, CommandHandler, MessageHandler, ContextTypes
 from dotenv import load_dotenv
 
-from database import init_db, add_message, clear_history
+from database import init_db, add_message, clear_history, get_all_messages
 from perplexity_client import ask_perplexity
 
 load_dotenv()
@@ -150,6 +153,118 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Không có lịch sử nào để xóa.")
 
 
+async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id
+    username = user.username or user.full_name or str(user_id)
+
+    messages = await get_all_messages(user_id)
+    if not messages:
+        await update.message.reply_text("Không có lịch sử hội thoại nào để xuất.")
+        return
+
+    content = _build_export_content(username, messages)
+
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".md",
+                prefix=f"history_{user_id}_",
+                encoding="utf-8",
+                delete=False,
+        ) as f:
+            f.write(content)
+            tmp_path = Path(f.name)
+
+        with tmp_path.open("rb") as doc:
+            await update.message.reply_document(
+                document=doc,
+                filename=f"history_{username}.md",
+                caption=f"Lịch sử hội thoại — {len(messages)} tin nhắn.",
+            )
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink()
+
+
+def _build_export_content(username: str, messages: list[dict]) -> str:
+    """Tạo nội dung file Markdown từ danh sách tin nhắn."""
+    exported_at = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    lines: list[str] = [
+        "# Lịch sử hội thoại — Perplexity Bot",
+        f"> Người dùng : {username}",
+        f"> Xuất lúc   : {exported_at}",
+        f"> Tổng số    : {len(messages)} tin nhắn",
+        "",
+    ]
+
+    # Nhóm từng cặp user/assistant thành một "lượt"
+    i = 0
+    turn = 1
+    while i < len(messages):
+        msg = messages[i]
+        ts = _fmt_timestamp(msg["timestamp"])
+
+        if msg["role"] == "user":
+            lines += [
+                "---",
+                "",
+                f"### Lượt {turn}",
+                "",
+                f"**[{ts}] Bạn**",
+                "",
+                msg["content"],
+                "",
+            ]
+            # Kiểm tra xem tin tiếp theo có phải assistant không
+            if i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
+                i += 1
+                reply = messages[i]
+                ts_r = _fmt_timestamp(reply["timestamp"])
+                lines += [
+                    f"**[{ts_r}] Trợ lý**",
+                    "",
+                    reply["content"],
+                    "",
+                ]
+                if reply["citations"]:
+                    lines.append("**Nguồn tham khảo:**")
+                    for idx, url in enumerate(reply["citations"], 1):
+                        lines.append(f"[{idx}] {url}")
+                    lines.append("")
+            turn += 1
+        else:
+            # Tin nhắn assistant đứng riêng (không có cặp user)
+            lines += [
+                "---",
+                "",
+                f"**[{ts}] Trợ lý**",
+                "",
+                msg["content"],
+                "",
+            ]
+            if msg["citations"]:
+                lines.append("**Nguồn tham khảo:**")
+                for idx, url in enumerate(msg["citations"], 1):
+                    lines.append(f"[{idx}] {url}")
+                lines.append("")
+
+        i += 1
+
+    lines += ["---", "", "*Được tạo bởi Perplexity Telegram Bot*"]
+    return "\n".join(lines)
+
+
+def _fmt_timestamp(ts: str) -> str:
+    """Chuyển chuỗi timestamp SQLite sang định dạng dd/mm/yyyy HH:MM."""
+    try:
+        dt = datetime.fromisoformat(ts)
+        return dt.strftime("%d/%m/%Y %H:%M")
+    except (ValueError, TypeError):
+        return ts
+
+
 def main() -> None:
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_TOKEN chưa được thiết lập trong file .env")
@@ -167,8 +282,10 @@ def main() -> None:
     )
 
     app.add_handler(CommandHandler("start", cmd_start, filters=allowed))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & allowed, handle_message))
+    app.add_handler(CommandHandler("export", cmd_export, filters=allowed))
     app.add_handler(CommandHandler("clear", cmd_clear, filters=allowed))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & allowed, handle_message))
+
     app.add_handler(
         MessageHandler(filters.ALL & ~allowed, _handle_unauthorized),
         group=1,

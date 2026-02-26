@@ -123,3 +123,37 @@ async def clear_history(telegram_user_id: int) -> int:
             deleted_count = cursor.rowcount
         await db.commit()
     return deleted_count
+
+
+async def get_all_messages(telegram_user_id: int) -> list[dict]:
+    """Lấy toàn bộ lịch sử chat của một user, sắp xếp từ cũ đến mới.
+
+    Args:
+        telegram_user_id: ID của người dùng Telegram.
+
+    Returns:
+        Danh sách dict với các key: id, role, content, citations, timestamp.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+                """
+                SELECT id, role, content, citations, timestamp
+                FROM chat_history
+                WHERE telegram_user_id = ?
+                ORDER BY timestamp ASC
+                """,
+                (telegram_user_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    return [
+        {
+            "id": row["id"],
+            "role": row["role"],
+            "content": row["content"],
+            "citations": json.loads(row["citations"]),
+            "timestamp": row["timestamp"],
+        }
+        for row in rows
+    ]
