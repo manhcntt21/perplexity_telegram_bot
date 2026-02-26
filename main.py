@@ -9,6 +9,7 @@ from telegram.ext import Application, filters, CommandHandler, MessageHandler, C
 from dotenv import load_dotenv
 
 from database import init_db, add_message
+from perplexity_client import ask_perplexity
 
 load_dotenv()
 
@@ -103,10 +104,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     try:
-        # mock perplexity API call
-        answer = "Đây là câu trả lời mẫu từ Perplexity API. Thay thế bằng logic gọi API thực tế."
-        citations = []
-        pass
+        answer, citations = await ask_perplexity(user_id, user_text)
     finally:
         stop_typing.set()
         await typing_task
