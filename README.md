@@ -16,6 +16,8 @@ Key files
 - `main.py` — Bot entry point, Telegram handlers and helpers.
 - `perplexity_client.py` — Perplexity API client and history sanitization.
 - `database.py` — Async SQLite helpers (aiosqlite) for storing chat history.
+- `utils.py` — Utility functions for Markdown conversion and message splitting.
+- `command_handlers.py` — Telegram command handlers for `/start`, `/export`, and `/clear`.
 - `requirements.txt` — Python dependencies.
 - `CLAUDE.md` — Project notes and developer documentation.
 
