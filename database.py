@@ -104,3 +104,22 @@ async def get_recent_messages(telegram_user_id: int, limit: int = 10) -> list[di
             "timestamp": row["timestamp"],
         })
     return messages
+
+
+async def clear_history(telegram_user_id: int) -> int:
+    """Xóa toàn bộ lịch sử chat của một user.
+
+    Args:
+        telegram_user_id: ID của người dùng Telegram.
+
+    Returns:
+        Số lượng bản ghi đã xóa.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+                "DELETE FROM chat_history WHERE telegram_user_id = ?",
+                (telegram_user_id,),
+        ) as cursor:
+            deleted_count = cursor.rowcount
+        await db.commit()
+    return deleted_count

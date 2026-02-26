@@ -8,7 +8,7 @@ from telegram.constants import ChatAction
 from telegram.ext import Application, filters, CommandHandler, MessageHandler, ContextTypes
 from dotenv import load_dotenv
 
-from database import init_db, add_message
+from database import init_db, add_message, clear_history
 from perplexity_client import ask_perplexity
 
 load_dotenv()
@@ -117,6 +117,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     for part in split_message(html_answer):
         await update.message.reply_text(part, parse_mode="HTML")
 
+
 async def post_init(application: Application) -> None:
     """Khởi tạo database khi bot khởi động."""
     await init_db()
@@ -134,6 +135,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/clear  – Xóa lịch sử hội thoại, bắt đầu cuộc trò chuyện mới",
         parse_mode="HTML",
     )
+
+
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    deleted = await clear_history(user_id)
+    if deleted > 0:
+        await update.message.reply_text(
+            f"Đã xóa <b>{deleted}</b> tin nhắn. Hội thoại mới bắt đầu!",
+            parse_mode="HTML",
+        )
+        logger.info("Đã xóa lịch sử của user_id=%d, %d tin nhắn bị xóa", user_id, deleted)
+    else:
+        await update.message.reply_text("Không có lịch sử nào để xóa.")
 
 
 def main() -> None:
@@ -154,7 +168,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", cmd_start, filters=allowed))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & allowed, handle_message))
-
+    app.add_handler(CommandHandler("clear", cmd_clear, filters=allowed))
     app.add_handler(
         MessageHandler(filters.ALL & ~allowed, _handle_unauthorized),
         group=1,
