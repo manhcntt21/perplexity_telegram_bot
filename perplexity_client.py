@@ -4,6 +4,7 @@ import logging
 import requests
 from dotenv import load_dotenv
 
+from database import get_recent_messages
 from prompts import SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -30,8 +31,14 @@ async def ask_perplexity(
             - answer: Chuỗi trả lời từ AI.
             - citations: Danh sách URL trích dẫn (có thể rỗng).
     """
+    # Lấy lịch sử gần nhất, sau đó sanitize để đảm bảo xen kẽ user/assistant
+    raw_history = await get_recent_messages(user_id, limit=CONTEXT_LIMIT)
+    history = _sanitize_history(raw_history)
+
     # Xây dựng danh sách messages theo format OpenAI-compatible
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": current_message})
 
     payload = {
@@ -43,7 +50,7 @@ async def ask_perplexity(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
-
+    logger.info("Number of messages in context: %d", len(messages))
     logger.info("Gửi request Perplexity | model=%s | messages=%d", MODEL, len(messages))
 
     try:
